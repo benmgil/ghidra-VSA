@@ -4,6 +4,6 @@
 	"Arguments": {
 		"1": "0xe"
 	},
-	"binary_file": "/home/gil/Work/angr-doc/examples/securityfest_fairlight/fairlight",
+	"binary_file": "fairlight",
 	"avoid": "0x00401990"
 }
