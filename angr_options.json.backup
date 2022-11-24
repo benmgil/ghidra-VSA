@@ -1,0 +1,10 @@
+{
+	"auto_load_libs": "False",
+	"find": "0x00401a4d",
+	"Arguments": {
+		"1": "0xe"
+	},
+	"binary_file": "/home/gil/Work/angr-doc/examples/securityfest_fairlight/fairlight",
+	"avoid": "0x00401990",
+	"blank_state": "0x00401905"
+}
