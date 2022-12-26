@@ -1,9 +1,11 @@
 {
 	"auto_load_libs": "False",
+	"use_sim_procedures": "True",
+	"default_analysis_mode": "symbolic",
 	"find": "0x00401a4d",
 	"Arguments": {
 		"1": "0xe"
 	},
-	"binary_file": "fairlight",
+	"binary_file": "fun_unsigned",
 	"avoid": "0x00401990"
 }
