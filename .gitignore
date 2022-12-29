@@ -1,4 +1,9 @@
-fun.id*
-angr-notes.md
-*.nam
-*.til
+notes.md
+vsa_script/*
+!vsa_script/vsa.py
+lib
+images
+dist
+build
+src/main/java/ghidravsa/HookCreation.java
+src/main/resources
