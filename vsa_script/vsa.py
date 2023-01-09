@@ -6,12 +6,8 @@ import time
 import logging
 import pickle
 import os.path
+from angr.sim_type import ALL_TYPES
 
-print(angr.__file__)
-
-EXPLORE_OPT = {}  # Explore options
-REGISTERS = []  # Main registers of your binary
-SYMVECTORS = []
 
 def pickle_graph(graph, bin_name, graph_type):
     filename = bin_name + "_" + graph_type +".pickle"
@@ -176,24 +172,20 @@ def get_reg_at_instr(cfg, vfg, target_instr, target_reg):
     target_str = target_reg.upper()
     get_val_at_instr(cfg, vfg, target_instr, target_str, reg_getter)
 
-def get_mem_at_instr(cfg, vfg, target_instr, target_mem, interp="int"):
+def get_mem_at_instr(cfg, vfg, target_instr, target_mem, type="int"):
     def mem_getter(state):
-        return getattr(state.mem[target_mem], interp).resolved
+        return getattr(state.mem[target_mem], type).resolved
     target_str = "[" + hex(target_mem).upper() + "]"
     get_val_at_instr(cfg, vfg, target_instr, target_str, mem_getter)
 
-def get_reg_offset_at_instr(cfg, vfg, target_instr, target_reg, offset, interp="int"):
+def get_reg_offset_at_instr(cfg, vfg, target_instr, target_reg, offset, type="int"):
     def offset_getter(state):
         reg_val = state.regs.get("_"+target_reg)
-        return getattr(state.mem[reg_val + offset], interp).resolved
+        return getattr(state.mem[reg_val + offset], type).resolved
     target_str = "[" + target_reg.upper() + " + " + hex(offset) + "]"
     get_val_at_instr(cfg, vfg, target_instr, target_str, offset_getter)
 
 
-
-    #YOU WANT TO CHANGE REG OFFSET TO USE MEM
-    #BUT FIRST YOU WANT TO TEST IT HOW IT IS TO SEE IF BOTH WAYS WORK
-    #SO YOU LOOKED AT INSTR 11FF BUT WHY DOES THE NEXT BLOCK USE VAR_C
 
 
 def figure_out_types():
@@ -223,177 +215,167 @@ def figure_out_types():
     print("_:")
     print(list2[0])
 
-def hook_function(state):
-    for object in EXPLORE_OPT["Hooks"]:
-        for frame in object.items():
-            if frame[0] == str(hex(state.solver.eval(state.regs.ip))):
-                for option, data in frame[1].items():
-                    if "sv" in data:
-                        symbvector_length = int(data[2:], 0)
-                        symbvector = claripy.BVS('symvector', symbvector_length * 8)
-                        SYMVECTORS.append(symbvector)
-                        data = symbvector
-                    else:
-                        data = int(str(data), 0)
-                    for REG in REGISTERS:
-                        if REG == option:
-                            setattr(state.regs, option, data)
-                            break
+
+def prepare_args(vsa_options, proj):
+    try:
+        ghidra_base = int(vsa_options["binary_details"]["base"], 16)
+        angr_base = proj.loader.min_addr
+        analysis_type = vsa_options["target"]
+
+        vsa_args = vsa_options["args"]
+
+        target_instr = int(vsa_args["instruction"], 16)
+        target_instr = target_instr + angr_base - ghidra_base
+
+        if analysis_type == "register":
+            target_reg = vsa_args["register"]
+            return (analysis_type, target_instr, target_reg)
+
+        if analysis_type == "memory":
+            target_mem = int(vsa_args["addr"], 16)
+            if target_mem is None:
+                print("Invalid memory address")
+                return None
+            target_type = vsa_args["type"]
+            if target_type not in ALL_TYPES:
+                print("Invalid type")
+                return None
+            return (analysis_type, target_instr, target_mem, target_type)
+
+        if analysis_type == "offset":
+            target_reg = vsa_args["register"]
+            target_offset = int(vsa_args["offset"], 16)
+            if target_offset is None:
+                print("Invalid offset value")
+                return None
+
+            target_type = vsa_args["type"]
+            if target_type not in ALL_TYPES:
+                print("Invalid type")
+                return None
+            return (analysis_type, target_instr, target_reg, target_offset, target_type)
+
+        return None
+    except Exception as e:
+        print("INVALID ARGS FROM GHIDRA")
+        print(e)
+        return None
+
+
+
+
+def do_vsa(cfg, vfg, args):
+    analysis_type = args[0]
+    fun_args = args[1:]
+
+    if analysis_type == "register":
+        get_reg_at_instr(cfg, vfg, *fun_args)
+    if analysis_type == "memory":
+        get_mem_at_instr(cfg, vfg, *fun_args)
+    if analysis_type == "offset":
+        get_reg_offset_at_instr(cfg, vfg, *fun_args)
+
+
 
 def main(file):
     t_0 = time.process_time()
     logging.getLogger('angr.storage.memory_mixins.default_filler_mixin').setLevel('ERROR')
 
-    with open(file, encoding='utf-8') as json_file:
-        global EXPLORE_OPT
-        EXPLORE_OPT = json.load(json_file)
+    try:
+        with open(file, encoding='utf-8') as json_file:
+            global vsa_options
+            vsa_options = json.load(json_file)
+    except:
+        print("Could not open file", file)
 
-    # Options parser
-    # JSON can't handle with hex values, so we need to do it manually
-    if "blank_state" in EXPLORE_OPT:
-        blank_state = int(EXPLORE_OPT["blank_state"], 16)
 
-    find = int(EXPLORE_OPT["find"], 16)
 
-    if "avoid" in EXPLORE_OPT:
-        avoid = [int(x, 16) for x in EXPLORE_OPT["avoid"].split(',')]
+    binary_file = vsa_options["binary_file"]
 
-    # User can input hex or decimal value (argv length / symbolic memory length)
-    argv = [EXPLORE_OPT["binary_file"]]
-    if "Arguments" in EXPLORE_OPT:
-        index = 1
-        for arg, length in EXPLORE_OPT["Arguments"].items():
-            argv.append(claripy.BVS("argv" + str(index), int(str(length), 0) * 8))
-            index += 1
 
-    if "Raw Binary" in EXPLORE_OPT:
-        for bin_option, data in EXPLORE_OPT["Raw Binary"].items():
-            if bin_option == "Arch":
-                arch = data
-            if bin_option == "Base":
-                base_address = int(str(data), 0)
-        p = angr.Project(EXPLORE_OPT["binary_file"],
-                         load_options={'main_opts': {'backend': 'blob', 'arch': arch,
-                                                     'base_addr': base_address}, 'auto_load_libs': EXPLORE_OPT["auto_load_libs"]})
-    else:
-        p = angr.Project(EXPLORE_OPT["binary_file"], load_options={"auto_load_libs": EXPLORE_OPT["auto_load_libs"]})
-
-    global REGISTERS
-    REGISTERS = p.arch.default_symbolic_registers
+    # if "binary_details" in vsa_options:
+    #     for detail, data in vsa_options["binary_details"].items():
+    #         if detail == "arch":
+    #             arch = data
+    #         if detail == "base":
+    #             base_address = int(str(data), 0)
+    #     p = angr.Project(binary_file,
+    #                      load_options={'main_opts': {'backend': 'blob', 'arch': arch,
+    #                                                  'base_addr': base_address}, 'auto_load_libs': 'False'})
+    # else:
+    #     p = angr.Project(vsa_options["binary_file"], load_options={'auto_load_libs': 'False'})
+    p = angr.Project(vsa_options["binary_file"], load_options={'auto_load_libs': 'False'})
 
     p.hook_symbol('atoi', angr.SIM_PROCEDURES['stubs']['ReturnUnconstrained']())
 
-    if len(argv) > 1:
-        state = p.factory.entry_state(args=argv)
-    elif "blank_state" in locals():
-        state = p.factory.blank_state(addr=blank_state)
-    else:
-        state = p.factory.entry_state()
-
-    # Store symbolic vectors in memory
-    if "Memory" in EXPLORE_OPT:
-        Memory = {}
-        for addr, length in EXPLORE_OPT["Memory"].items():
-            symbmem_addr = int(addr, 16)
-            symbmem_len = int(length, 0)
-            Memory.update({symbmem_addr: symbmem_len})
-            symb_vector = claripy.BVS('input', symbmem_len * 8)
-            state.memory.store(symbmem_addr, symb_vector)
-
-    # Write to memory
-    if "Store" in EXPLORE_OPT:
-        for addr, value in EXPLORE_OPT["Store"].items():
-            store_addr = int(addr, 16)
-            store_value = int(value, 16)
-            store_length = len(value) - 2
-            state.memory.store(store_addr, state.solver.BVV(store_value, 4 * store_length))
-
-    # Handle Symbolic Registers
-    if "Registers" in EXPLORE_OPT:
-        for register, data in EXPLORE_OPT["Registers"].items():
-            if "sv" in data:
-                symbvector_length = int(data[2:], 0)
-                symbvector = claripy.BVS('symvector', symbvector_length * 8)
-                SYMVECTORS.append(symbvector)
-                data = symbvector
-            else:
-                data = int(str(data), 0)
-            for REG in REGISTERS:
-                if REG == register:
-                    setattr(state.regs, register, data)
-                    break
-
-    # Handle Hooks
-    if "Hooks" in EXPLORE_OPT:
-        for object in EXPLORE_OPT["Hooks"]:
-            for frame in object.items():
-                hook_address = frame[0]
-                for option, data in frame[1].items():
-                    data = int(str(data), 0)
-                    if option == "Length":
-                        hook_length = data
-                        break
-                p.hook(int(hook_address, 16), hook_function, length=hook_length)
-
+    # if len(argv) > 1:
+    #     state = p.factory.entry_state(args=argv)
+    # else:
+    #     state = p.factory.entry_state()
+    state = p.factory.entry_state()
     simgr = p.factory.simulation_manager(state)
-    if "avoid" in locals():
-        simgr.use_technique(angr.exploration_techniques.Explorer(find=find, avoid=avoid))
-    else:
-        simgr.use_technique(angr.exploration_techniques.Explorer(find=find))
 
+    # print(hex(p.loader.min_addr)) #correct
+    # print(hex(p.loader.main_object.min_addr)) #correct
+    # print(hex(p.loader.main_object.linked_base)) #0x0
+    # print(hex(p.loader.main_object.mapped_base)) #correct
 
-    bin_name = EXPLORE_OPT["binary_file"]
 
     cfg = None
     vfg = None
     ddg = None
     vsa_ddg = None
-    # cfg = unpickle_cfg(bin_name)
+    # cfg = unpickle_cfg(binary_file)
     if cfg is None:
         # cfg = p.analyses.CFG(normalize=True)
         # cfg = p.analyses.CFGFast()
         #starts=?
         # cfg = p.analyses.CFGEmulated(keep_state=True)
         cfg = p.analyses.CFGEmulated(keep_state=True, state_add_options=angr.sim_options.refs, context_sensitivity_level=10, normalize=True)
-    main = cfg.functions.function(name="main")
 
-    # vfg = unpickle_vfg(bin_name)
+    main_addr = cfg.functions.function(name="main")
+
+    # vfg = unpickle_vfg(binary_file)
     if vfg is None:
         vfg = p.analyses.VFG(
             cfg,
-            start=main.addr,
+            start=main_addr.addr,
             context_sensitivity_level=10,
             interfunction_level=10,
             record_function_final_states=True,
             remove_options={angr.options.OPTIMIZE_IR}
         )
     # vsa_ddg = p.analyses.VSA_DDG(vfg=vfg, keep_data=True, start_addr=vfg._start)
-    ddg = p.analyses.DDG(cfg)
+    # ddg = p.analyses.DDG(cfg)
 
-    print(" ")
-
-    # print_vfg(vfg)
-
-
-    # target_instr = 0x4011FF
-    # target_instr = 0x401194
-    # target_instr = 0x40123A
-    # target_instr = 0x401246
-    target_instr = 0x401208
-    # target_reg = "rdi"
-    target_reg = "rax"
-    target_offset = -8
-    target_mem = 0x7fffffffffefef0 + target_offset
-
-    # target_instr = 0x401246
-    # target_reg = "edi"
-
-    get_reg_at_instr(cfg, vfg, target_instr, target_reg)
-    # get_reg_offset_at_instr(vfg, target_instr, "rbp", target_offset, "int")
+    # print(" ")
+    args = prepare_args(vsa_options, p)
+    if args is None:
+        return
+    do_vsa(cfg, vfg, args)
 
 
-    print("CFG HAS", cfg.graph.number_of_nodes(), "NODES AND", cfg.graph.number_of_edges(), "EDGES")
-    print("VFG HAS", vfg.graph.number_of_nodes(), "NODES AND", vfg.graph.number_of_edges(), "EDGES")
+
+
+    # # target_instr = 0x4011FF
+    # # target_instr = 0x401194
+    # # target_instr = 0x40123A
+    # # target_instr = 0x401246
+    # target_instr = 0x401208
+    # # target_reg = "rdi"
+    # target_reg = "rax"
+    # target_offset = -8
+    # target_mem = 0x7fffffffffefef0 + target_offset
+    #
+    # # target_instr = 0x401246
+    # # target_reg = "edi"
+    #
+    # get_reg_at_instr(cfg, vfg, target_instr, target_reg)
+    # # get_reg_offset_at_instr(vfg, target_instr, "rbp", target_offset, "int")
+
+
+    # print("CFG HAS", cfg.graph.number_of_nodes(), "NODES AND", cfg.graph.number_of_edges(), "EDGES")
+    # print("VFG HAS", vfg.graph.number_of_nodes(), "NODES AND", vfg.graph.number_of_edges(), "EDGES")
 
     #figure_out_types()
 
@@ -415,83 +397,10 @@ def main(file):
         print(vsa_ddg.graph.number_of_nodes())
         print(vsa_ddg.graph.number_of_edges())
 
-########################################################
-
-    # # vfg1 = p.analyses.VFG()
-    # # print(vfg1)
-    # # print(vfg1._cfg)
-    # # print(vfg1._nodes)
-    # # print(vfg1.final_states)
-    # # print(vfg1._final_address)
-    # # simgr.run()
-    # # vfg = p.analyses.VFG()
-    # # print("--------------------")
-    # print(vfg)
-    # print(vfg._cfg)
-    # print(vfg.final_states)
-    # print(vfg._final_address)
-    # print(vfg._nodes)
-    # print(len(vfg._nodes))
-    # for key in vfg._nodes:
-    #     print(key)
-    #     print("=========")
-    #     print(vfg._nodes[key])
-    #     print("=========")
-    #     print(vfg._nodes[key].final_states)
-    #     print(len(vfg._nodes[key].final_states))
-    #     print("+++++")
-    # print(" ")
-    # # ddg = p.analyses.VSA_DDG(start_addr=vfg._start)
-    # print(ddg)
-    # print(ddg._vfg)
-    # print(ddg.graph.number_of_nodes())
-    # print(vfg._start)
 
 
-
-
-
-
-    simgr.run()
-    if simgr.found:
-        found_path = simgr.found[0]
-
-        win_sequence = ""
-        for win_block in found_path.history.bbl_addrs.hardcopy:
-            win_block = p.factory.block(win_block)
-            addresses = win_block.instruction_addrs
-            for address in addresses:
-                win_sequence += hex(address) + ","
-        win_sequence = win_sequence[:-1]
-        # print("Trace:" + win_sequence)
-
-        if len(argv) > 1:
-            for i in range(1, len(argv)):
-                print("argv[{id}] = {solution}".format(id=i, solution=found_path.solver.eval(argv[i], cast_to=bytes)))
-
-        if "Memory" in locals() and len(Memory) != 0:
-            for address, length in Memory.items():
-                print("{addr} = {value}".format(addr=hex(address),
-                                                value=found_path.solver.eval(found_path.memory.load(address, length),
-                                                                             cast_to=bytes)))
-
-        if len(SYMVECTORS) > 0:
-            for SV in SYMVECTORS:
-                print(found_path.solver.eval(SV, cast_to=bytes))
-
-        found_stdins = found_path.posix.stdin.content
-        if len(found_stdins) > 0:
-            std_id = 1
-            for stdin in found_stdins:
-                print(
-                    "stdin[{id}] = {solution}".format(id=std_id,
-                                                      solution=found_path.solver.eval(stdin[0], cast_to=bytes)))
-                std_id += 1
-    else:
-        print("")
-
-    # pickle_cfg(cfg, bin_name)
-    # pickle_vfg(vfg, bin_name)
+    # pickle_cfg(cfg, binary_file)
+    # pickle_vfg(vfg, binary_file)
 
     elapsed = time.process_time() - t_0
     print("ELAPSED: ", elapsed)

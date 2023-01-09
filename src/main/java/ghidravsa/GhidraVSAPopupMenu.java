@@ -1,17 +1,9 @@
 package ghidravsa;
 
 import java.awt.Color;
-import java.awt.GridBagConstraints;
-import java.awt.Insets;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.List;
 import javax.swing.ImageIcon;
-import javax.swing.JButton;
+import javax.swing.JTextField;
 import docking.action.MenuData;
-import docking.widgets.textfield.IntegerTextField;
 import ghidra.app.context.ListingActionContext;
 import ghidra.app.context.ListingContextAction;
 import ghidra.app.plugin.core.colorizer.ColorizingService;
@@ -19,7 +11,6 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressIterator;
 import ghidra.program.model.listing.Program;
-import ghidra.program.model.mem.MemoryAccessException;
 
 public class GhidraVSAPopupMenu extends ListingContextAction {
     public final String menuName = "GhidraVSAPlugin";
@@ -32,6 +23,7 @@ public class GhidraVSAPopupMenu extends ListingContextAction {
         super("GhidraVSAPlugin", plugin.getName());
         setProgram(program);
         tool = plugin.getTool();
+        instrAddr = null;
         setupActions();
     }
 
@@ -55,7 +47,9 @@ public class GhidraVSAPopupMenu extends ListingContextAction {
                 Address address = context.getLocation().getAddress();
                 instrAddr = address;
                 setColor(address, Color.MAGENTA);
-                // GhidraVSAProvider.instrAddrField.setText("0x" + address.toString());
+                // JTextField component = GhidraVSAProvider.instrInput.getComponent();
+                // component.setText("0x" + address.toString());
+                GhidraVSAProvider.instrInput.setValue(address.getOffset());
             }
         };
 
@@ -71,9 +65,14 @@ public class GhidraVSAPopupMenu extends ListingContextAction {
             @Override
             protected void actionPerformed(ListingActionContext context){
                 Address address = context.getLocation().getAddress();
-                unsetColor(address);
-                instrAddr = null;
-                // GhidraVSAProvider.instrAddrField.setText("");
+                if (address.equals(instrAddr)){
+                    unsetColor(address);
+                    instrAddr = null;
+                    // JTextField component = GhidraVSAProvider.instrInput.getComponent();
+                    // component.setText("");
+                    GhidraVSAProvider.instrInput.setValue(null);
+                    GhidraVSAProvider.instrInput.setHexMode();
+                }
             }
         };
 
