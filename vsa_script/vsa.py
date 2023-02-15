@@ -16,7 +16,7 @@ def pickle_graph(graph, bin_name, graph_type):
             pickle.dump(graph, file, -1)
     except Exception as e:
         print(e)
-        print(f"ERROR: COULD NOT PICKLE {graph_type.upper()} PICKLE")
+        print(f"ERROR: Could not pickle {graph_type.upper()} pickle")
 
 def unpickle_graph(bin_name, graph_type):
     filename = bin_name + "_" + graph_type + ".pickle"
@@ -28,7 +28,7 @@ def unpickle_graph(bin_name, graph_type):
             graph = pickle.load(file)
             return graph
     except:
-        print(f"ERROR: COULD NOT LOAD {graph_type.upper()} PICKLE")
+        print(f"ERROR: Could not load {graph_type.upper()} pickle")
         return None
 
 def pickle_vfg(vfg, bin_name):
@@ -55,7 +55,7 @@ def get_sorted_cfg(cfg):
 def print_cfg(cfg):
     sorted_cfg = get_sorted_cfg(cfg)
     print("CFG: ")
-    print(len(sorted_cfg), " ITEMS")
+    print(len(sorted_cfg), " items")
     for (addr, func) in sorted_cfg:
         print("ADDR: ", hex(addr))
         print("FUNC: ", func)
@@ -103,7 +103,7 @@ def get_sorted_vfg(vfg):
 def print_vfg(vfg):
     sorted_vfg = get_sorted_vfg(vfg)
     print("VFG: ")
-    print(len(sorted_vfg), " ITEMS")
+    print(len(sorted_vfg), " items")
     for (key, node) in sorted_vfg:
         print(key)
         print(node)
@@ -111,7 +111,7 @@ def print_vfg(vfg):
 
 def get_val_at_instr(cfg, vfg, target_instr, target_str, val_getter):
     if not instr_in_cfg(target_instr, cfg):
-        print("CANNOT DO VSA. TARGET INSTRUCTION NOT IN CFG")
+        print("Error: Cannot do VSA. Target instruction not in CFG")
         return
     sorted_vfg = get_sorted_vfg(vfg)
 
@@ -217,56 +217,72 @@ def figure_out_types():
 
 
 def prepare_args(vsa_options, proj):
-    try:
-        ghidra_base = int(vsa_options["binary_details"]["base"], 16)
-        angr_base = proj.loader.min_addr
-        analysis_type = vsa_options["target"]
+    def hex_to_int(hex_str):
+        if hex_str.find("0x") != 0 and hex_str.find("-0x") != 0:
+            return None
+        try:
+            return int(hex_str, 16)
+        except ValueError:
+            return None
 
-        vsa_args = vsa_options["args"]
 
-        target_instr = int(vsa_args["instruction"], 16)
-        target_instr = target_instr + angr_base - ghidra_base
+    ghidra_base = int(vsa_options["binary_details"]["base"], 16)
+    angr_base = proj.loader.min_addr
+    analysis_type = vsa_options["target"]
 
-        if analysis_type == "register":
-            target_reg = vsa_args["register"]
-            return (analysis_type, target_instr, target_reg)
+    vsa_args = vsa_options["args"]
 
-        if analysis_type == "memory":
-            target_mem = int(vsa_args["addr"], 16)
-            if target_mem is None:
-                print("Invalid memory address")
-                return None
-            target_type = vsa_args["type"]
-            if target_type not in ALL_TYPES:
-                print("Invalid type")
-                return None
-            return (analysis_type, target_instr, target_mem, target_type)
-
-        if analysis_type == "offset":
-            target_reg = vsa_args["register"]
-            target_offset = int(vsa_args["offset"], 16)
-            if target_offset is None:
-                print("Invalid offset value")
-                return None
-
-            target_type = vsa_args["type"]
-            if target_type not in ALL_TYPES:
-                print("Invalid type")
-                return None
-            return (analysis_type, target_instr, target_reg, target_offset, target_type)
-
+    ghidra_target_instr = hex_to_int(vsa_args["instruction"])
+    if target_instr is None:
+        print("ERROR: Enter instruction address in hex with leading 0x")
         return None
-    except Exception as e:
-        print("INVALID ARGS FROM GHIDRA")
-        print(e)
-        return None
+
+    target_instr = ghidra_target_instr + angr_base - ghidra_base
+
+    print(f"Target instruction: {hex(ghidra_target_instr)}")
+    print(f"Adjusted for Ghidra and angr base address: {hex(target_instr)}")
+
+    if analysis_type == "register":
+        target_reg = vsa_args["register"]
+        if target_reg == "":
+            print("ERROR: No register target given")
+            return None
+        return (analysis_type, (target_instr, target_reg))
+
+    elif analysis_type == "memory":
+        target_mem = hex_to_int(vsa_args["addr"])
+        if target_mem is None:
+            print("ERROR: Enter memory location in hex with leading 0x")
+            return None
+        target_type = vsa_args["type"]
+        if target_type not in ALL_TYPES:
+            print("ERROR: Invalid type")
+            return None
+        return (analysis_type, (target_instr, target_mem, target_type))
+
+    elif analysis_type == "offset":
+        target_reg = vsa_args["register"]
+        if target_reg == "":
+            print("ERROR: No register target given")
+            return None
+        target_offset = hex_to_int(vsa_args["offset"])
+        if target_offset is None:
+            print("ERROR: Enter offset in hex with leading 0x")
+            return None
+        target_type = vsa_args["type"]
+        if target_type not in ALL_TYPES:
+            print("Invalid type")
+            return None
+        return (analysis_type, (target_instr, target_reg, target_offset, target_type))
+
+    return None
+
 
 
 
 
 def do_vsa(cfg, vfg, args):
-    analysis_type = args[0]
-    fun_args = args[1:]
+    analysis_type, fun_args = args
 
     if analysis_type == "register":
         get_reg_at_instr(cfg, vfg, *fun_args)
@@ -320,6 +336,10 @@ def main(file):
     # print(hex(p.loader.main_object.linked_base)) #0x0
     # print(hex(p.loader.main_object.mapped_base)) #correct
 
+    args = prepare_args(vsa_options, p)
+    if args is None:
+        print("Please check the provided inputs")
+        return
 
     cfg = None
     vfg = None
@@ -349,9 +369,8 @@ def main(file):
     # ddg = p.analyses.DDG(cfg)
 
     # print(" ")
-    args = prepare_args(vsa_options, p)
-    if args is None:
-        return
+
+
     do_vsa(cfg, vfg, args)
 
 
