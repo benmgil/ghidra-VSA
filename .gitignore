@@ -4,7 +4,6 @@ vsa_script/*
 !vsa_script/vsa.py
 lib
 images
-dist
 build
 src/main/java/ghidravsa/HookCreation.java
 src/main/resources

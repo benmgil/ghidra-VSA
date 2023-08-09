@@ -233,7 +233,7 @@ def prepare_args(vsa_options, proj):
     vsa_args = vsa_options["args"]
 
     ghidra_target_instr = hex_to_int(vsa_args["instruction"])
-    if target_instr is None:
+    if ghidra_target_instr is None:
         print("ERROR: Enter instruction address in hex with leading 0x")
         return None
 
@@ -322,7 +322,7 @@ def main(file):
     #     p = angr.Project(vsa_options["binary_file"], load_options={'auto_load_libs': 'False'})
     p = angr.Project(vsa_options["binary_file"], load_options={'auto_load_libs': 'False'})
 
-    p.hook_symbol('atoi', angr.SIM_PROCEDURES['stubs']['ReturnUnconstrained']())
+    # p.hook_symbol('atoi', angr.SIM_PROCEDURES['stubs']['ReturnUnconstrained']())
 
     # if len(argv) > 1:
     #     state = p.factory.entry_state(args=argv)
@@ -356,6 +356,7 @@ def main(file):
     main_addr = cfg.functions.function(name="main")
 
     # vfg = unpickle_vfg(binary_file)
+    
     if vfg is None:
         vfg = p.analyses.VFG(
             cfg,
